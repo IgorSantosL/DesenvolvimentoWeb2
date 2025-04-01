@@ -1,3 +1,7 @@
+Instalar node_modules
+USAR cd Atividade_Context
+
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
