@@ -1,6 +1,6 @@
 import { Pool } from "pg"; 
 import dotenv from "dotenv"; 
-// Carrega as variáveis de ambiente do arquivo .env 
+
 dotenv.config(); 
 export default new Pool({ 
 host: process.env.BD_HOST, 
