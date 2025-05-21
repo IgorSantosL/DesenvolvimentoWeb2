@@ -128,6 +128,17 @@ SELECT * FROM megasena;
 
 ---
 
+### ⚙️ Passo 5 - Criar arquivo .env no backend
+
+Crie o arquivo .env na raiz do projeto e defina as seguintes variáveis de ambiente: 
+PORT = 3001 
+BD_HOST = localhost 
+BD_USER = postgres # Altere conforme o seu usuário 
+BD_PASSWORD = 123 # Altere conforme a sua senha 
+BD_DATABASE = bdaula # Nome do banco criado no pgAdmin 
+BD_PORT = 5432 # Porta padrão do PostgreSQL 
+
+
 ## 📂 Estrutura do Projeto
 
 ```
