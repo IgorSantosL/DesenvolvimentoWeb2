@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useCensusContext } from '../context/CensusContext';
@@ -7,14 +7,7 @@ import { CityList } from '../components/CityList';
 import { InfoBox } from '../components/InfoBox';
 import styled from 'styled-components';
 import type { Feature, MultiPolygon } from 'geojson';
-import type { Layer } from 'leaflet';
-
-interface SectorLayer extends Layer {
-  feature?: Feature;
-  setStyle?: (style: L.PathOptions) => void;
-  bringToFront?: () => void;
-  getBounds?: () => L.LatLngBounds;
-}
+import type { Layer, PathOptions, LatLngBounds } from 'leaflet';
 
 const Wrapper = styled.div`
   height: 100vh;
@@ -29,97 +22,93 @@ const StyledInfoBox = styled.div`
   z-index: 1000;
 `;
 
-const parseGeom = (
-  geom: string | object,
-  cd_setor: string | number
-): Feature<MultiPolygon> | null => {
-  try {
-    const parsed = typeof geom === 'string' ? JSON.parse(geom) : geom;
-    if (parsed.type !== 'MultiPolygon') return null;
-    return {
-      type: 'Feature',
-      geometry: parsed,
-      properties: { cd_setor: String(cd_setor) },
-    };
-  } catch {
-    return null;
-  }
-};
+interface CustomLayer extends Layer {
+  feature?: Feature;
+  setStyle: (style: PathOptions) => this;
+  bringToFront: () => this;
+  getBounds: () => LatLngBounds;
+}
 
 const MapContent = () => {
-  const { data, setSelectedSector, selectedSector } = useCensusContext();
+  const { data, setSelectedSector } = useCensusContext();
   const map = useMap();
-  const layersRef = useRef<SectorLayer[]>([]);
-
-  // Limpa as referências sempre que os dados mudam
-  useEffect(() => {
-    layersRef.current = [];
-  }, [data]);
-
-  const applyStyles = useCallback(() => {
-    layersRef.current.forEach((layer) => {
-      const feature = layer.feature;
-      const featureCd = String(feature?.properties?.cd_setor || '');
-      const selectedCd = String(selectedSector?.cd_setor || '');
-      const isSelected = featureCd === selectedCd;
-
-      const style = isSelected
-        ? { color: 'red', weight: 3, fillOpacity: 0.7 }
-        : { color: 'blue', weight: 1, fillOpacity: 0.2 };
-
-      layer.setStyle?.(style);
-    });
-  }, [selectedSector]);
+  const selectedLayerRef = useRef<CustomLayer | null>(null);
+  const lastCityRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (data) {
-      map.setView([data.centroid.latitude, data.centroid.longitude], 12);
+      map.flyTo([data.centroid.latitude, data.centroid.longitude], 12, {
+        animate: true,
+        duration: 1.5
+      });
     }
   }, [data, map]);
 
-  useEffect(() => {
-    applyStyles();
-  }, [applyStyles]);
+  const onEachFeature = (feature: Feature, layer: Layer) => {
+    const customLayer = layer as CustomLayer;
 
-  const onEachFeature = useCallback(
-    (feature: Feature, layer: SectorLayer) => {
-      // Adiciona o layer apenas se ainda não estiver no array
-      if (!layersRef.current.includes(layer)) {
-        layersRef.current.push(layer);
-      }
-      layer.setStyle?.({ color: 'blue', weight: 1, fillOpacity: 0.2 });
+    customLayer.setStyle({
+      color: '#3388ff',
+      weight: 1,
+      fillOpacity: 0.2,
+      fillColor: '#3388ff'
+    });
 
-      layer.on('click', async () => {
-        if (layer.getBounds) {
-          const center = layer.getBounds().getCenter();
-          try {
-            const res = await getSectorByPoint(center.lat, center.lng);
-            setSelectedSector(res.data);
-            layer.bringToFront?.();
-            // Não chame applyStyles aqui, pois o estado já dispara o efeito
-          } catch (error) {
-            console.error('Erro ao buscar setor:', error);
-          }
+    customLayer.on('click', async () => {
+      try {
+        if (selectedLayerRef.current) {
+          selectedLayerRef.current.setStyle({
+            color: '#3388ff',
+            weight: 1,
+            fillOpacity: 0.2,
+            fillColor: '#3388ff'
+          });
         }
-      });
-    },
-    [setSelectedSector]
-  );
+
+        customLayer.setStyle({
+          color: '#ff0000',
+          weight: 3,
+          fillOpacity: 0.7,
+          fillColor: '#ff0000'
+        });
+        customLayer.bringToFront();
+        selectedLayerRef.current = customLayer;
+
+        const bounds = customLayer.getBounds();
+        const center = bounds.getCenter();
+        const res = await getSectorByPoint(center.lat, center.lng);
+        setSelectedSector(res.data);
+      } catch (error) {
+        console.error('Erro ao buscar setor:', error);
+      }
+    });
+  };
 
   return (
     <>
       {data?.polygons.map((poly, idx) => {
-        const parsed = parseGeom(poly.geom, poly.cd_setor);
-        return parsed ? (
-          <GeoJSON
-            key={`${data.centroid.latitude}-${idx}`}
-            data={parsed}
-            onEachFeature={(feature, layer) => {
-              (layer as SectorLayer).feature = feature;
-              onEachFeature(feature, layer as SectorLayer);
-            }}
-          />
-        ) : null;
+        try {
+          const geom = typeof poly.geom === 'string' ? JSON.parse(poly.geom) : poly.geom;
+
+          if (geom.type !== 'MultiPolygon') return null;
+
+          const feature: Feature<MultiPolygon> = {
+            type: 'Feature',
+            geometry: geom,
+            properties: { cd_setor: String(poly.cd_setor) }
+          };
+
+          return (
+            <GeoJSON
+              key={`${poly.cd_setor}-${idx}`}
+              data={feature}
+              onEachFeature={onEachFeature}
+            />
+          );
+        } catch (error) {
+          console.error('Erro ao parsear geometria:', error);
+          return null;
+        }
       })}
     </>
   );
@@ -135,8 +124,12 @@ export const MapPage = () => {
           center={[data.centroid.latitude, data.centroid.longitude]}
           zoom={12}
           style={{ height: '100%', width: '100%' }}
+          preferCanvas={true}
         >
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          />
           <MapContent />
         </MapContainer>
       )}
